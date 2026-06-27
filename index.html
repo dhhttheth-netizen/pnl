@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shortlist — Live PnL</title>
+<style>
+  :root{
+    --bg:        #0a0d0f;
+    --panel:     #11161a;
+    --panel-2:   #0d1113;
+    --line:      #1d2429;
+    --ink:       #cdd6db;
+    --ink-dim:   #6b7780;
+    --ink-dimmer:#454f56;
+    --green:     #2ee6a8;
+    --green-dim: #16332b;
+    --red:       #ff5d5d;
+    --red-dim:   #3a1818;
+    --amber:     #e8b339;
+    --blue:      #4a9eff;
+    --blue-dim:  #142233;
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family: "JetBrains Mono", "SF Mono", "Roboto Mono", Consolas, monospace;
+    font-size:13px;
+    min-height:100vh;
+  }
+
+  /* ── Top bar ───────────────────────────────────────────── */
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 20px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, #0d1113, #0a0d0f);
+  }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand .mark{ font-weight:700; letter-spacing:0.5px; color:var(--ink); font-size:15px; }
+  .brand .mark span{ color:var(--green); }
+  .brand .sub{ color:var(--ink-dim); font-size:11px; letter-spacing:0.5px; }
+
+  .status-cluster{ display:flex; align-items:center; gap:18px; font-size:11px; color:var(--ink-dim); }
+  .dot{ width:7px; height:7px; border-radius:50%; display:inline-block; margin-right:6px; position:relative; top:1px; }
+  .dot.live{ background:var(--green); box-shadow:0 0 8px var(--green); }
+  .dot.off{  background:var(--ink-dim); }
+  .dot.closed{ background:var(--amber); box-shadow:0 0 8px var(--amber); }
+  .dot.paused{ background:var(--blue); box-shadow:0 0 8px var(--blue); }
+
+  button.icon-btn{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--ink-dim);
+    border-radius:3px;
+    padding:4px 10px;
+    font-family:inherit;
+    font-size:11px;
+    cursor:pointer;
+    transition:border-color .15s, color .15s;
+  }
+  button.icon-btn:hover{ border-color:var(--ink-dim); color:var(--ink); }
+  button.icon-btn.active{ border-color:var(--blue); color:var(--blue); }
+  button.icon-btn:focus-visible{ outline:2px solid var(--blue); outline-offset:1px; }
+
+  /* ── Summary strip ────────────────────────────────────── */
+  .summary{
+    display:grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap:1px;
+    background:var(--line);
+    border-bottom:1px solid var(--line);
+  }
+  .summary .cell{ background:var(--panel); padding:16px 20px; transition:background .3s; }
+  .summary .cell.flash{ background:#16201f; }
+  .summary .label{ color:var(--ink-dim); font-size:10.5px; letter-spacing:0.8px; text-transform:uppercase; margin-bottom:6px; }
+  .summary .value{ font-size:22px; font-weight:700; letter-spacing:-0.3px; font-variant-numeric: tabular-nums; }
+  .summary .value.pos{ color:var(--green); }
+  .summary .value.neg{ color:var(--red); }
+  .summary .value.neutral{ color:var(--ink); }
+
+  /* ── Toolbar: tabs + search ──────────────────────────────── */
+  .toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    padding:14px 20px 0 20px;
+    flex-wrap:wrap;
+  }
+  .tabs{ display:flex; gap:6px; }
+  .tab{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--ink-dim);
+    border-radius:4px;
+    padding:6px 14px;
+    font-family:inherit;
+    font-size:11.5px;
+    letter-spacing:0.3px;
+    cursor:pointer;
+    transition:all .15s;
+  }
+  .tab:hover{ color:var(--ink); border-color:var(--ink-dimmer); }
+  .tab.active{ color:var(--blue); border-color:var(--blue); background:var(--blue-dim); }
+  .tab .count{ color:var(--ink-dimmer); margin-left:5px; }
+  .tab.active .count{ color:var(--blue); opacity:0.7; }
+
+  .search-wrap{ position:relative; flex:0 0 220px; }
+  .search-wrap input{
+    width:100%;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--ink);
+    border-radius:4px;
+    padding:7px 12px 7px 30px;
+    font-family:inherit;
+    font-size:12px;
+    outline:none;
+    transition:border-color .15s;
+  }
+  .search-wrap input:focus{ border-color:var(--blue); }
+  .search-wrap input::placeholder{ color:var(--ink-dimmer); }
+  .search-wrap .icon{
+    position:absolute; left:10px; top:50%; transform:translateY(-50%);
+    color:var(--ink-dimmer); font-size:12px; pointer-events:none;
+  }
+  .search-wrap .clear-btn{
+    position:absolute; right:8px; top:50%; transform:translateY(-50%);
+    background:none; border:none; color:var(--ink-dimmer); cursor:pointer;
+    font-size:14px; padding:2px 4px; display:none;
+  }
+  .search-wrap.has-value .clear-btn{ display:block; }
+  .search-wrap .clear-btn:hover{ color:var(--ink); }
+
+  /* ── Table ─────────────────────────────────────────────── */
+  main{ padding:14px 20px 20px; }
+
+  .table-wrap{
+    border:1px solid var(--line);
+    border-radius:4px;
+    overflow:hidden;
+    background:var(--panel);
+  }
+
+  table{ width:100%; border-collapse:collapse; }
+
+  thead th{
+    text-align:left;
+    font-size:10.5px;
+    letter-spacing:0.8px;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    font-weight:600;
+    padding:10px 14px;
+    border-bottom:1px solid var(--line);
+    background:var(--panel-2);
+    cursor:pointer;
+    user-select:none;
+    white-space:nowrap;
+    transition:color .15s;
+  }
+  thead th:hover{ color:var(--ink); }
+  thead th.num{ text-align:right; }
+  thead th .arrow{ display:inline-block; width:9px; margin-left:3px; color:var(--blue); opacity:0; }
+  thead th.sorted .arrow{ opacity:1; }
+  thead th:not(.sortable){ cursor:default; }
+  thead th:not(.sortable):hover{ color:var(--ink-dim); }
+
+  tbody td{ padding:10px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  tbody tr.position-row{ cursor:pointer; transition:background .1s; }
+  tbody tr.position-row:hover{ background:#141a1e; }
+  tbody tr.position-row.expanded{ background:#10171a; }
+  tbody tr:last-child td{ border-bottom:none; }
+
+  td.num{ text-align:right; font-variant-numeric: tabular-nums; }
+  td.sym{ font-weight:700; letter-spacing:0.3px; }
+  td.sym .chevron{
+    display:inline-block; width:8px; margin-right:6px;
+    color:var(--ink-dimmer); transition:transform .15s; font-size:10px;
+  }
+  tr.expanded td.sym .chevron{ transform:rotate(90deg); color:var(--blue); }
+  td.basket{ color:var(--ink-dim); font-size:11px; }
+  .occ-badge{
+    display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px;
+    background:#1b2a25; color:var(--green); font-size:10px; font-weight:700;
+  }
+
+  .pnl.pos{ color:var(--green); font-weight:700; }
+  .pnl.neg{ color:var(--red); font-weight:700; }
+  .pnl.zero{ color:var(--ink-dim); }
+
+  /* tick flash on updated cells */
+  td.tick-up{ animation: flashGreen .6s ease-out; }
+  td.tick-down{ animation: flashRed .6s ease-out; }
+  @keyframes flashGreen{ 0%{ background:var(--green-dim);} 100%{ background:transparent; } }
+  @keyframes flashRed{ 0%{ background:var(--red-dim);} 100%{ background:transparent; } }
+
+  .note{ color:var(--amber); font-size:11px; }
+
+  /* ── Expanded detail row ──────────────────────────────── */
+  tr.detail-row td{ padding:0; border-bottom:1px solid var(--line); background:var(--panel-2); }
+  .detail-inner{ padding:16px 20px; display:flex; gap:24px; align-items:center; }
+  .spark-block{ flex:1; min-width:0; }
+  .spark-block .spark-label{ color:var(--ink-dim); font-size:10.5px; letter-spacing:0.5px; text-transform:uppercase; margin-bottom:8px; }
+  .spark-block svg{ display:block; width:100%; height:60px; }
+  .detail-stats{ display:flex; gap:28px; flex-shrink:0; }
+  .detail-stat .l{ color:var(--ink-dim); font-size:10px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; }
+  .detail-stat .v{ font-size:15px; font-weight:700; font-variant-numeric: tabular-nums; }
+  .spark-empty{ color:var(--ink-dimmer); font-size:11px; padding:20px 0; text-align:center; }
+
+  .empty-state{ padding:48px 20px; text-align:center; color:var(--ink-dim); }
+  .empty-state .big{ font-size:14px; color:var(--ink); margin-bottom:6px; }
+
+  footer{ padding:14px 20px; color:var(--ink-dim); font-size:11px; display:flex; justify-content:space-between; }
+  code{ background:var(--panel-2); padding:2px 5px; border-radius:3px; color:var(--ink); }
+
+  @media (max-width:720px){
+    .summary{ grid-template-columns: repeat(2, 1fr); }
+    thead th:nth-child(2), td:nth-child(2){ display:none; }
+    .toolbar{ flex-direction:column; align-items:stretch; }
+    .search-wrap{ flex:1 1 auto; }
+    .detail-inner{ flex-direction:column; align-items:stretch; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark">SHORTLIST<span>::</span>PNL</div>
+    <div class="sub">live mark-to-market</div>
+  </div>
+  <div class="status-cluster">
+    <span id="market-state"><span class="dot off"></span>checking market…</span>
+    <span id="conn-state"><span class="dot off"></span>connecting…</span>
+    <button class="icon-btn" id="pause-btn" title="Pause live updates">⏸ pause</button>
+    <span id="last-update">—</span>
+  </div>
+</header>
+
+<div class="summary">
+  <div class="cell" id="cell-pnl">
+    <div class="label">Today's PnL</div>
+    <div class="value neutral" id="total-pnl">₹0</div>
+  </div>
+  <div class="cell" id="cell-open">
+    <div class="label">Open Positions</div>
+    <div class="value neutral" id="open-count">0</div>
+  </div>
+  <div class="cell" id="cell-wl">
+    <div class="label">Winners / Losers</div>
+    <div class="value neutral" id="win-loss">0 / 0</div>
+  </div>
+  <div class="cell" id="cell-cap">
+    <div class="label">Capital / Trade</div>
+    <div class="value neutral" id="capital">—</div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="tabs" id="basket-tabs">
+    <button class="tab active" data-basket="ALL">All <span class="count" id="count-all">0</span></button>
+  </div>
+  <div class="search-wrap" id="search-wrap">
+    <span class="icon">⌕</span>
+    <input type="text" id="search-input" placeholder="Search symbol…" autocomplete="off">
+    <button class="clear-btn" id="search-clear" title="Clear">×</button>
+  </div>
+</div>
+
+<main>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="sortable" data-key="symbol">Symbol<span class="arrow">▲</span></th>
+          <th>Basket</th>
+          <th class="num sortable" data-key="entry_price">Entry (Open)<span class="arrow">▲</span></th>
+          <th class="num sortable" data-key="ltp">LTP<span class="arrow">▲</span></th>
+          <th class="num sortable" data-key="qty">Qty<span class="arrow">▲</span></th>
+          <th class="num sortable" data-key="pnl_pct">PnL %<span class="arrow">▲</span></th>
+          <th class="num sortable" data-key="pnl">PnL ₹<span class="arrow">▲</span></th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+        <tr><td colspan="7" style="padding:0;">
+          <div class="empty-state">
+            <div class="big">Waiting for data…</div>
+            <div>Make sure <code>uvicorn main:app --port 8000</code> is running.</div>
+          </div>
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<footer>
+  <span id="shortlist-file">—</span>
+  <span>backend: <code id="backend-url">http://localhost:8000</code></span>
+</footer>
+
+<script>
+  // ── Config ──────────────────────────────────────────────
+  // ⚠️ EDIT THIS after you get your real backend URL from Render:
+  // Replace "shortlist-pnl-backend" below with your actual Render service name
+  // if it's different. Locally (served from http.server), it auto-falls-back
+  // to localhost:8000 so nothing breaks during local dev.
+  const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const API_BASE = isLocal
+    ? "http://localhost:8000"
+    : "https://shortlist-pnl-backend.onrender.com";
+  const WS_URL = isLocal
+    ? "ws://localhost:8000/ws/live"
+    : "wss://shortlist-pnl-backend.onrender.com/ws/live";
+  const MAX_HISTORY = 120; // ~10 min at 5s ticks, per symbol
+
+  // ── State ─────────────────────────────────────────────────
+  let latestPositions = [];      // raw positions from last payload
+  let history = {};              // symbol -> [{t, ltp, pnl}]
+  let prevValues = {};           // symbol -> {ltp, pnl} for tick-flash diffing
+  let activeBasket = "ALL";
+  let searchTerm = "";
+  let sortKey = null;
+  let sortDir = 1;                // 1 = asc, -1 = desc
+  let expandedSymbol = null;
+  let paused = false;
+  let lastPayload = null;
+
+  let ws = null;
+  let reconnectTimer = null;
+  let reconnectDelay = 1000;      // exponential backoff, capped below
+  let wsGeneration = 0;           // guards against stale sockets scheduling reconnects
+
+  // ── Formatters ────────────────────────────────────────────
+  const fmtMoney = (n) => {
+    if (n === null || n === undefined) return "—";
+    const sign = n < 0 ? "-" : "";
+    return sign + "₹" + Math.abs(n).toLocaleString("en-IN", {maximumFractionDigits:2});
+  };
+  const fmtNum = (n) => (n === null || n === undefined) ? "—" : n.toLocaleString("en-IN");
+  const pnlClass = (n) => n > 0 ? "pos" : (n < 0 ? "neg" : "zero");
+
+  function flashCell(el){
+    el.classList.remove("flash");
+    void el.offsetWidth; // restart animation
+    el.classList.add("flash");
+    setTimeout(()=> el.classList.remove("flash"), 650);
+  }
+
+  // ── Connection status ──────────────────────────────────────
+  function setConn(state){
+    const el = document.getElementById("conn-state");
+    if(paused){
+      el.innerHTML = '<span class="dot paused"></span>paused';
+      return;
+    }
+    if(state === "live"){
+      el.innerHTML = '<span class="dot live"></span>live feed';
+    } else if(state === "connecting"){
+      el.innerHTML = '<span class="dot off"></span>connecting…';
+    } else {
+      el.innerHTML = '<span class="dot off"></span>disconnected — retrying';
+    }
+  }
+
+  // ── Pause / resume ──────────────────────────────────────────
+  document.getElementById("pause-btn").addEventListener("click", () => {
+    paused = !paused;
+    const btn = document.getElementById("pause-btn");
+    btn.textContent = paused ? "▶ resume" : "⏸ pause";
+    btn.classList.toggle("active", paused);
+    setConn(ws && ws.readyState === WebSocket.OPEN ? "live" : "off");
+  });
+
+  // ── Search ───────────────────────────────────────────────
+  const searchInput = document.getElementById("search-input");
+  const searchWrap  = document.getElementById("search-wrap");
+  searchInput.addEventListener("input", (e) => {
+    searchTerm = e.target.value.trim().toUpperCase();
+    searchWrap.classList.toggle("has-value", searchTerm.length > 0);
+    renderTable();
+  });
+  document.getElementById("search-clear").addEventListener("click", () => {
+    searchInput.value = "";
+    searchTerm = "";
+    searchWrap.classList.remove("has-value");
+    renderTable();
+    searchInput.focus();
+  });
+
+  // ── Sorting ──────────────────────────────────────────────
+  document.querySelectorAll("thead th.sortable").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.key;
+      if(sortKey === key){
+        sortDir *= -1;
+      } else {
+        sortKey = key;
+        sortDir = 1;
+      }
+      document.querySelectorAll("thead th").forEach(h => h.classList.remove("sorted"));
+      th.classList.add("sorted");
+      th.querySelector(".arrow").textContent = sortDir === 1 ? "▲" : "▼";
+      renderTable();
+    });
+  });
+
+  function applySort(list){
+    if(!sortKey) return list;
+    const sorted = [...list].sort((a,b) => {
+      let av = a[sortKey], bv = b[sortKey];
+      if(typeof av === "string") av = av.toLowerCase();
+      if(typeof bv === "string") bv = bv.toLowerCase();
+      if(av === null || av === undefined) av = sortKey === "symbol" ? "" : -Infinity;
+      if(bv === null || bv === undefined) bv = sortKey === "symbol" ? "" : -Infinity;
+      if(av < bv) return -1 * sortDir;
+      if(av > bv) return 1 * sortDir;
+      return 0;
+    });
+    return sorted;
+  }
+
+  // ── Basket tabs (built dynamically from data) ───────────────
+  function rebuildTabs(positions){
+    const baskets = {};
+    positions.forEach(p => {
+      const tags = (p.basket || "").split("+").filter(Boolean);
+      (tags.length ? tags : ["—"]).forEach(t => { baskets[t] = (baskets[t]||0) + 1; });
+    });
+    const container = document.getElementById("basket-tabs");
+    const names = Object.keys(baskets).sort();
+
+    let html = `<button class="tab ${activeBasket==='ALL'?'active':''}" data-basket="ALL">All <span class="count">${positions.length}</span></button>`;
+    names.forEach(name => {
+      html += `<button class="tab ${activeBasket===name?'active':''}" data-basket="${name}">${name} <span class="count">${baskets[name]}</span></button>`;
+    });
+    container.innerHTML = html;
+
+    container.querySelectorAll(".tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        activeBasket = btn.dataset.basket;
+        container.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        renderTable();
+      });
+    });
+  }
+
+  function filteredPositions(){
+    let list = latestPositions;
+    if(activeBasket !== "ALL"){
+      list = list.filter(p => (p.basket || "").split("+").includes(activeBasket));
+    }
+    if(searchTerm){
+      list = list.filter(p => p.symbol.toUpperCase().includes(searchTerm));
+    }
+    return applySort(list);
+  }
+
+  // ── Sparkline SVG builder ───────────────────────────────────
+  function buildSparkline(points){
+    if(!points || points.length < 2){
+      return `<div class="spark-empty">Collecting tick history… check back in a few seconds</div>`;
+    }
+    const w = 600, h = 60, pad = 4;
+    const vals = points.map(p => p.ltp);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const range = (max - min) || 1;
+    const stepX = (w - pad*2) / (points.length - 1);
+
+    const coords = points.map((p, i) => {
+      const x = pad + i * stepX;
+      const y = pad + (h - pad*2) * (1 - (p.ltp - min) / range);
+      return [x, y];
+    });
+
+    const path = coords.map((c,i) => (i===0 ? "M" : "L") + c[0].toFixed(1) + "," + c[1].toFixed(1)).join(" ");
+    const lastUp = points[points.length-1].ltp >= points[0].ltp;
+    const lineColor = lastUp ? "var(--red)" : "var(--green)"; // SHORT: price up = bad(red), down = good(green)
+
+    const areaPath = path + ` L${coords[coords.length-1][0].toFixed(1)},${h-pad} L${coords[0][0].toFixed(1)},${h-pad} Z`;
+
+    return `
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <path d="${areaPath}" fill="${lineColor}" opacity="0.08" stroke="none"></path>
+        <path d="${path}" fill="none" stroke="${lineColor}" stroke-width="1.6" vector-effect="non-scaling-stroke"></path>
+      </svg>`;
+  }
+
+  function renderDetailRow(p){
+    const hist = history[p.symbol] || [];
+    const sparkHtml = buildSparkline(hist);
+    const high = hist.length ? Math.max(...hist.map(h=>h.ltp)) : null;
+    const low  = hist.length ? Math.min(...hist.map(h=>h.ltp)) : null;
+    return `
+      <tr class="detail-row">
+        <td colspan="7">
+          <div class="detail-inner">
+            <div class="spark-block">
+              <div class="spark-label">LTP — last ${hist.length} ticks (this session)</div>
+              ${sparkHtml}
+            </div>
+            <div class="detail-stats">
+              <div class="detail-stat"><div class="l">Session High</div><div class="v">${high !== null ? high.toFixed(2) : "—"}</div></div>
+              <div class="detail-stat"><div class="l">Session Low</div><div class="v">${low !== null ? low.toFixed(2) : "—"}</div></div>
+              <div class="detail-stat"><div class="l">Entry</div><div class="v">${p.entry_price !== null ? p.entry_price.toFixed(2) : "—"}</div></div>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+  }
+
+  // ── Main table render ───────────────────────────────────────
+  function renderTable(){
+    const tbody = document.getElementById("rows");
+    const list = filteredPositions();
+
+    if(latestPositions.length === 0){
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:0;"><div class="empty-state"><div class="big">No positions in shortlist</div></div></td></tr>`;
+      return;
+    }
+    if(list.length === 0){
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:0;"><div class="empty-state"><div class="big">No matches</div><div>Try a different basket or search term</div></div></td></tr>`;
+      return;
+    }
+
+    let html = "";
+    list.forEach(p => {
+      const isExpanded = expandedSymbol === p.symbol;
+      if(p.note){
+        html += `
+          <tr class="position-row" data-symbol="${p.symbol}">
+            <td class="sym"><span class="chevron">▸</span>${p.symbol}</td>
+            <td class="basket">${p.basket || ""}</td>
+            <td class="num" colspan="5"><span class="note">${p.note}</span></td>
+          </tr>`;
+        return;
+      }
+      const occBadge = p.occurrences && p.occurrences > 1 ? `<span class="occ-badge">×${p.occurrences}</span>` : "";
+      html += `
+        <tr class="position-row ${isExpanded ? 'expanded' : ''}" data-symbol="${p.symbol}">
+          <td class="sym"><span class="chevron">▸</span>${p.symbol}${occBadge}</td>
+          <td class="basket">${p.basket || ""}</td>
+          <td class="num" data-field="entry_price">${p.entry_price !== null ? p.entry_price.toFixed(2) : "—"}</td>
+          <td class="num" data-field="ltp">${p.ltp !== null ? p.ltp.toFixed(2) : "—"}</td>
+          <td class="num" data-field="qty">${fmtNum(p.qty)}</td>
+          <td class="num pnl ${pnlClass(p.pnl_pct || 0)}" data-field="pnl_pct">${p.pnl_pct !== null ? p.pnl_pct.toFixed(2) + "%" : "—"}</td>
+          <td class="num pnl ${pnlClass(p.pnl || 0)}" data-field="pnl">${fmtMoney(p.pnl)}</td>
+        </tr>`;
+      if(isExpanded){
+        html += renderDetailRow(p);
+      }
+    });
+    tbody.innerHTML = html;
+
+    tbody.querySelectorAll("tr.position-row").forEach(tr => {
+      tr.addEventListener("click", () => {
+        const sym = tr.dataset.symbol;
+        expandedSymbol = (expandedSymbol === sym) ? null : sym;
+        renderTable();
+      });
+    });
+
+    // tick-flash on cells whose values changed since last render
+    list.forEach(p => {
+      if(p.note) return;
+      const prev = prevValues[p.symbol];
+      if(prev){
+        const row = tbody.querySelector(`tr.position-row[data-symbol="${p.symbol}"]`);
+        if(row){
+          if(prev.ltp !== p.ltp && p.ltp !== null){
+            const cell = row.querySelector('[data-field="ltp"]');
+            if(cell) cell.classList.add(p.ltp > prev.ltp ? "tick-up" : "tick-down");
+          }
+          if(prev.pnl !== p.pnl && p.pnl !== null){
+            const cell = row.querySelector('[data-field="pnl"]');
+            if(cell) cell.classList.add(p.pnl > prev.pnl ? "tick-up" : "tick-down");
+          }
+        }
+      }
+      prevValues[p.symbol] = { ltp: p.ltp, pnl: p.pnl };
+    });
+  }
+
+  // ── Append to per-symbol history buffer ─────────────────────
+  function recordHistory(positions, ts){
+    positions.forEach(p => {
+      if(p.ltp === null || p.ltp === undefined) return;
+      if(!history[p.symbol]) history[p.symbol] = [];
+      const buf = history[p.symbol];
+      buf.push({ t: ts, ltp: p.ltp, pnl: p.pnl });
+      if(buf.length > MAX_HISTORY) buf.shift();
+    });
+  }
+
+  // ── Top-level render from a payload ─────────────────────────
+  function render(data){
+    document.getElementById("backend-url").textContent = API_BASE;
+    lastPayload = data;
+
+    if(data.error){
+      latestPositions = [];
+      document.getElementById("rows").innerHTML = `
+        <tr><td colspan="7" style="padding:0;">
+          <div class="empty-state">
+            <div class="big">${data.error}</div>
+            <div>Check <code>SHORTLIST_FILE</code> path and that the CSV exists.</div>
+          </div>
+        </td></tr>`;
+      document.getElementById("total-pnl").textContent = "₹0";
+      document.getElementById("open-count").textContent = "0";
+      document.getElementById("win-loss").textContent = "0 / 0";
+      rebuildTabs([]);
+      return;
+    }
+
+    const marketEl = document.getElementById("market-state");
+    marketEl.innerHTML = data.market_open
+      ? '<span class="dot live"></span>market open'
+      : '<span class="dot closed"></span>market closed';
+
+    document.getElementById("shortlist-file").textContent = data.shortlist_file ? `source: ${data.shortlist_file}` : "";
+    document.getElementById("last-update").textContent = "updated " + new Date(data.ts).toLocaleTimeString();
+
+    const totalEl = document.getElementById("total-pnl");
+    const prevTotal = parseFloat(totalEl.dataset.raw || "0");
+    totalEl.textContent = fmtMoney(data.today_pnl);
+    totalEl.dataset.raw = data.today_pnl;
+    totalEl.className = "value " + (data.today_pnl > 0 ? "pos" : data.today_pnl < 0 ? "neg" : "neutral");
+    if(prevTotal !== data.today_pnl) flashCell(document.getElementById("cell-pnl"));
+
+    const positions = data.positions || [];
+    latestPositions = positions;
+
+    document.getElementById("open-count").textContent = positions.length;
+    const winners = positions.filter(p => (p.pnl || 0) > 0).length;
+    const losers  = positions.filter(p => (p.pnl || 0) < 0).length;
+    document.getElementById("win-loss").textContent = `${winners} / ${losers}`;
+
+    rebuildTabs(positions);
+    recordHistory(positions, data.ts);
+    renderTable();
+  }
+
+  async function loadOnce(){
+    try{
+      const res = await fetch(`${API_BASE}/api/live/pnl`);
+      const data = await res.json();
+      render(data);
+    }catch(err){
+      document.getElementById("rows").innerHTML = `
+        <tr><td colspan="7" style="padding:0;">
+          <div class="empty-state">
+            <div class="big">Can't reach backend at ${API_BASE}</div>
+            <div>Run <code>uvicorn main:app --reload --port 8000</code> and reload this page.</div>
+          </div>
+        </td></tr>`;
+    }
+  }
+
+  async function loadHealth(){
+    try{
+      const res = await fetch(`${API_BASE}/`);
+      const data = await res.json();
+      document.getElementById("capital").textContent = fmtMoney(data.capital_per_trade);
+    }catch(err){ /* silent */ }
+  }
+
+  // ── WebSocket — hardened reconnect ──────────────────────────
+  // Notes on the original "stuck connecting" issue:
+  //  1) `uvicorn --reload` restarts the whole process on ANY watched-file
+  //     change (CSV writes, __pycache__, logs) — every restart drops the
+  //     socket. That's expected dev behavior, not a dashboard bug — the
+  //     reconnect below just needs to handle it gracefully.
+  //  2) The previous client always called setConn("connecting") inside
+  //     connectWS() even when a stray old socket's onclose fired after a
+  //     newer one had already opened, which could re-trigger reconnects
+  //     and make the status flicker / look permanently stuck.
+  // Fix: tag each socket with a generation number; only the CURRENT
+  // generation's callbacks are allowed to touch state or schedule retries.
+  function connectWS(){
+    if(paused) return;
+    const myGen = ++wsGeneration;
+    setConn("connecting");
+
+    let socket;
+    try{
+      socket = new WebSocket(WS_URL);
+    }catch(e){
+      scheduleReconnect(myGen);
+      return;
+    }
+    ws = socket;
+
+    socket.onopen = () => {
+      if(myGen !== wsGeneration) return;
+      reconnectDelay = 1000; // reset backoff on success
+      setConn("live");
+    };
+    socket.onmessage = (evt) => {
+      if(myGen !== wsGeneration || paused) return;
+      try{ render(JSON.parse(evt.data)); }
+      catch(e){ console.error("bad payload", e); }
+    };
+    socket.onclose = () => {
+      if(myGen !== wsGeneration) return; // stale socket, ignore
+      setConn("off");
+      scheduleReconnect(myGen);
+    };
+    socket.onerror = () => {
+      if(myGen !== wsGeneration) return;
+      socket.close();
+    };
+  }
+
+  function scheduleReconnect(myGen){
+    if(paused) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      if(myGen !== wsGeneration) return; // a newer attempt already superseded this
+      reconnectDelay = Math.min(reconnectDelay * 1.5, 15000); // exponential backoff, capped 15s
+      connectWS();
+    }, reconnectDelay);
+  }
+
+  // resume polling/streaming when unpaused
+  document.getElementById("pause-btn").addEventListener("click", () => {
+    if(!paused){ // was just turned on above; ws stays open but we ignore messages
+      clearTimeout(reconnectTimer);
+    } else {
+      reconnectDelay = 1000;
+      if(!ws || ws.readyState !== WebSocket.OPEN){
+        connectWS();
+      } else {
+        setConn("live");
+      }
+    }
+  });
+
+  // ── Boot ─────────────────────────────────────────────────
+  loadOnce();
+  loadHealth();
+  connectWS();
+
+  // keyboard: "/" focuses search, Esc clears it
+  document.addEventListener("keydown", (e) => {
+    if(e.key === "/" && document.activeElement !== searchInput){
+      e.preventDefault();
+      searchInput.focus();
+    } else if(e.key === "Escape" && document.activeElement === searchInput){
+      searchInput.value = "";
+      searchTerm = "";
+      searchWrap.classList.remove("has-value");
+      renderTable();
+      searchInput.blur();
+    }
+  });
+</script>
+</body>
+</html>
