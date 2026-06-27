@@ -1,0 +1,47 @@
+name: Daily Shortlist Scan
+
+# Runs automatically every day, no laptop or manual trigger needed.
+# 1:30 AM UTC = 7:00 AM IST. GitHub's schedule can drift a few minutes
+# under load, so this is "around 7am", not exact-to-the-second.
+on:
+  schedule:
+    - cron: "30 1 * * *"
+  workflow_dispatch: {}   # lets you also trigger it manually from the Actions tab, for testing
+
+permissions:
+  contents: write   # needed so the workflow can commit the new CSV back to the repo
+
+jobs:
+  scan-and-shortlist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet requests pandas yfinance tabulate
+
+      - name: Run scanner
+        env:
+          # This secret is set by the token webpage each morning (see token-webpage/).
+          # If it's missing or expired, this step fails loudly here instead of
+          # silently producing a stale/wrong shortlist.
+          UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
+        run: |
+          python scanner.py
+
+      - name: Commit updated shortlist
+        run: |
+          git config user.name "shortlist-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add shortlist_latest.csv
+          # Only commit if the file actually changed — avoids empty commits
+          # on days the scan produces an identical result.
+          git diff --quiet --cached || git commit -m "Auto-update shortlist $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
