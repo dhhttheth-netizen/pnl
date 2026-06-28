@@ -1,9 +1,12 @@
 services:
   # ── 1. Backend: FastAPI PnL API + WebSocket ───────────────────
+  # No "plan" line — Render defaults new web services to its free
+  # instance type. Explicitly writing "plan: free" currently causes
+  # a "no such plan free for service type web" error on Render's
+  # Blueprint validator, so we just omit the field.
   - type: web
     name: shortlist-pnl-backend
     runtime: python
-    plan: free
     buildCommand: pip install -r requirements-backend.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -13,9 +16,10 @@ services:
         value: "50000"
 
   # ── 2. Frontend: static dashboard ──────────────────────────────
+  # Static sites have no instance type at all (no servers to size),
+  # so "plan" doesn't apply here either — Render hosts these free.
   - type: web
     name: shortlist-pnl-dashboard
     runtime: static
-    plan: free
     buildCommand: ""
     staticPublishPath: .
