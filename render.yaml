@@ -19,18 +19,3 @@ services:
     plan: free
     buildCommand: ""
     staticPublishPath: .
-
-  # ── 3. Token webpage: paste today's Upstox token each morning ──
-  - type: web
-    name: shortlist-token-updater
-    runtime: python
-    plan: free
-    buildCommand: pip install -r token-webpage/requirements.txt
-    startCommand: uvicorn token_server:app --host 0.0.0.0 --port $PORT --app-dir token-webpage
-    envVars:
-      - key: GITHUB_PAT
-        sync: false       # you'll paste this once in Render's dashboard, not in code
-      - key: GITHUB_REPO
-        sync: false       # e.g. "yourname/shortlist-pnl"
-      - key: PAGE_PASSWORD
-        sync: false       # a password YOU pick to protect this page
