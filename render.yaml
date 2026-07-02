@@ -10,11 +10,12 @@ services:
     buildCommand: pip install -r requirements-backend.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: SHORTLIST_FILE
         value: shortlist_latest.csv
       - key: CAPITAL_PER_TRADE
         value: "50000"
-
   # ── 2. Frontend: static dashboard ──────────────────────────────
   # Static sites have no instance type at all (no servers to size),
   # so "plan" doesn't apply here either — Render hosts these free.
