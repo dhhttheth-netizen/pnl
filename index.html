@@ -315,7 +315,7 @@
   // ── Config ──────────────────────────────────────────────
   // Auto-detects environment: localhost during dev, your Render backend in prod.
   const IS_LOCAL = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  const BACKEND_HOST = "shortlist-pnl-backend.onrender.com"; // <-- your Render backend service name
+  const BACKEND_HOST = "pnl-1-ekw6.onrender.com"; // <-- your live Render backend
   const API_BASE = IS_LOCAL ? "http://localhost:8000" : `https://${BACKEND_HOST}`;
   const WS_URL   = IS_LOCAL ? "ws://localhost:8000/ws/live" : `wss://${BACKEND_HOST}/ws/live`;
   const MAX_HISTORY = 120; // ~10 min of 5s ticks per symbol, kept in memory
