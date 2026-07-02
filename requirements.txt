@@ -3,3 +3,4 @@ uvicorn[standard]==0.32.0
 requests==2.32.3
 pynacl==1.5.0
 pandas==2.2.3
+yfinance==0.2.44
