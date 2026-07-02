@@ -16,8 +16,9 @@
 # Cloud deploy (Render free tier): the platform injects $PORT — the start
 # command in render.yaml binds to it automatically, no code change needed.
 # ─────────────────────────────────────────────────────────────────
-import os, json, asyncio
+import os, json, asyncio, traceback
 from datetime import datetime, time as dtime
+from zoneinfo import ZoneInfo
 import pandas as pd
 import yfinance as yf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -35,14 +36,21 @@ app.add_middleware(
 SHORTLIST_FILE    = os.environ.get("SHORTLIST_FILE", "shortlist_latest.csv")
 CAPITAL_PER_TRADE = float(os.environ.get("CAPITAL_PER_TRADE", "50000"))
 
+IST = ZoneInfo("Asia/Kolkata")
+
 # Cache of today's open price per symbol, captured once and reused all day
 # (so PnL doesn't drift if open price briefly comes back as None mid-session)
 _entry_cache: dict[str, float] = {}
 
+# Cache of the last real exception seen per symbol, for /api/debug
+_last_error: dict[str, str] = {}
+
 
 def market_open() -> bool:
-    now = datetime.now().time()
-    return dtime(9, 15) <= now <= dtime(15, 30)
+    # Cloud hosts (Render, etc.) run their clock in UTC. NSE hours are in IST,
+    # so this must be evaluated in IST regardless of the server's local timezone.
+    now_ist = datetime.now(IST).time()
+    return dtime(9, 15) <= now_ist <= dtime(15, 30)
 
 
 def load_shortlist() -> pd.DataFrame:
@@ -80,6 +88,10 @@ def get_open_and_ltp(yf_sym: str) -> tuple[float | None, float | None]:
     """
     Returns (today_open, last_price) for a given yfinance symbol.
     Today's open is cached once fetched (your short entry price).
+    Any real exception is stashed in _last_error[yf_sym] instead of being
+    silently swallowed, so /api/debug/{symbol} can show you what's actually
+    going wrong (rate limiting, blocked IP, bad symbol, etc.) instead of a
+    generic "price unavailable" note.
     """
     try:
         t = yf.Ticker(yf_sym)
@@ -88,19 +100,23 @@ def get_open_and_ltp(yf_sym: str) -> tuple[float | None, float | None]:
         ltp = None
         try:
             ltp = t.fast_info.get("last_price")
-        except Exception:
-            pass
+        except Exception as e:
+            _last_error[yf_sym] = f"fast_info(last_price) failed: {e!r}"
+
         if ltp is None:
             hist = t.history(period="1d", interval="1m")
             if not hist.empty:
                 ltp = float(hist["Close"].iloc[-1])
+            else:
+                _last_error[yf_sym] = "history(1d, 1m) returned empty dataframe"
 
         # Today's open — cache once found
         today_open = _entry_cache.get(yf_sym)
         if today_open is None:
             try:
                 today_open = t.fast_info.get("open")
-            except Exception:
+            except Exception as e:
+                _last_error[yf_sym] = f"fast_info(open) failed: {e!r}"
                 today_open = None
             if today_open is None:
                 hist = t.history(period="1d", interval="1m")
@@ -108,9 +124,14 @@ def get_open_and_ltp(yf_sym: str) -> tuple[float | None, float | None]:
                     today_open = float(hist["Open"].iloc[0])
             if today_open:
                 _entry_cache[yf_sym] = today_open
+                _last_error.pop(yf_sym, None)  # clear stale error once it works
+
+        if ltp is not None and today_open is not None:
+            _last_error.pop(yf_sym, None)
 
         return today_open, ltp
-    except Exception:
+    except Exception as e:
+        _last_error[yf_sym] = f"unhandled: {e!r}\n{traceback.format_exc()}"
         return None, None
 
 
@@ -122,7 +143,7 @@ def compute_live_pnl() -> dict:
             "positions": [],
             "market_open": market_open(),
             "error": f"{SHORTLIST_FILE} not found or empty",
-            "ts": datetime.now().isoformat(),
+            "ts": datetime.now(IST).isoformat(),
         }
 
     positions = []
@@ -143,7 +164,8 @@ def compute_live_pnl() -> dict:
                 "qty": None, "pnl": 0.0,
                 "pnl_pct": None,
                 "occurrences": occurrences,
-                "note": "price unavailable (market may not be open yet, or symbol mismatch)",
+                "note": "price unavailable (market may not be open yet, or symbol mismatch) "
+                        f"— see /api/debug/{sym} for the real error",
             })
             continue
 
@@ -170,7 +192,7 @@ def compute_live_pnl() -> dict:
         "positions": positions,
         "market_open": market_open(),
         "shortlist_file": SHORTLIST_FILE,
-        "ts": datetime.now().isoformat(),
+        "ts": datetime.now(IST).isoformat(),
     }
 
 
@@ -187,6 +209,36 @@ def get_shortlist():
 @app.get("/api/live/pnl")
 def live_pnl_once():
     return compute_live_pnl()
+
+@app.get("/api/debug/{symbol}")
+def debug_symbol(symbol: str):
+    """
+    Diagnostic endpoint: shows the RAW yfinance response and the real
+    underlying exception (if any) for one symbol, so you don't have to
+    guess why a price is unavailable. Hit this in the browser, e.g.
+    https://<your-backend>.onrender.com/api/debug/TCS
+    """
+    yf_sym = _yf_symbol(symbol)
+    out = {"symbol": symbol, "yf_symbol": yf_sym}
+    try:
+        t = yf.Ticker(yf_sym)
+        try:
+            out["fast_info"] = dict(t.fast_info)
+        except Exception as e:
+            out["fast_info_error"] = repr(e)
+        try:
+            hist = t.history(period="1d", interval="1m")
+            out["history_rows"] = len(hist)
+            out["history_head"] = hist.head(3).reset_index().to_dict(orient="records") if not hist.empty else []
+        except Exception as e:
+            out["history_error"] = repr(e)
+    except Exception as e:
+        out["ticker_error"] = repr(e)
+        out["traceback"] = traceback.format_exc()
+
+    out["last_cached_error"] = _last_error.get(yf_sym)
+    out["cached_open"] = _entry_cache.get(yf_sym)
+    return out
 
 @app.get("/api/intraday/{symbol}")
 def intraday(symbol: str):
@@ -212,7 +264,8 @@ def intraday(symbol: str):
 def health():
     return {
         "status": "ok",
-        "time": datetime.now().isoformat(),
+        "time": datetime.now(IST).isoformat(),
+        "market_open": market_open(),
         "data_source": "yfinance (no broker login required)",
         "shortlist_file": SHORTLIST_FILE,
         "capital_per_trade": CAPITAL_PER_TRADE,
